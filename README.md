@@ -2,6 +2,8 @@
 
 A simple service to fetch your Spotify listening data using the Spotify Web API.
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2Fjoshlol%2Fspotify-data)
+
 ## Features
 
 - Retrieve your currently playing track
