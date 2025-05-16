@@ -1,22 +1,16 @@
 {
-  "name": "spotify-data",
-  "version": "1.0.0",
-  "description": "Get data directly from Spotify's API.",
-  "main": "spotify.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Wist9063/spotify-data.git"
-  },
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/Wist9063/spotify-data/issues"
-  },
-  "homepage": "https://github.com/Wist9063/spotify-data#readme",
-  "dependencies": {
-    "node-fetch": "^2.6.1"
-  }
+	"name": "joshlolserv-spotify",
+	"version": "0.0.0",
+	"private": true,
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"test": "vitest"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-pool-workers": "^0.8.19",
+		"vitest": "~3.0.7",
+		"wrangler": "^4.15.2"
+	}
 }

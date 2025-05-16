@@ -1,0 +1,46 @@
+{
+  // Your Worker’s name (must match your Wrangler project)
+  "name": "joshlolserv-spotify",
+
+  // The entry point for your Worker script
+  "main": "src/index.js",
+
+  // When to compile for compatibility
+  "compatibility_date": "2025-05-15",
+
+  // Use ES module format
+  "type": "javascript",
+
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+
+  // Bind your KV namespace for token caching
+  "kv_namespaces": [
+    {
+      "binding": "SPOTIFY_TOKEN_KV",
+      "id": "0bc6c220e3884977a2a96f760ea4d3f2",
+      "preview_id": "e242bb4de0bf4447afa962d636a4ced5"
+    }
+  ],
+
+  // Plain-text environment variable for client ID
+  "vars": {
+    "SPOTIFY_CLIENT_ID": "2d109cdfd02746b39aa4797df12d2c7d"
+  },
+
+  // Secrets Store bindings for sensitive credentials
+  "secrets_store_secrets": [
+    {
+      "binding": "SPOTIFY_SECRET_ID",
+      "store_id": "9acc25e060694647b0d471319438dad6",
+      "secret_name": "SPOTIFY_SECRET_ID"
+    },
+    {
+      "binding": "SPOTIFY_REFRESH_TOKEN",
+      "store_id": "9acc25e060694647b0d471319438dad6",
+      "secret_name": "SPOTIFY_REFRESH_TOKEN"
+    }
+
+  ]
+}
