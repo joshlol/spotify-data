@@ -1,86 +1,103 @@
 # spotify-data
 
-A simple service to fetch your Spotify listening data using the Spotify Web API.
-
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2Fjoshlol%2Fspotify-data)
+A Cloudflare Worker that exposes your Spotify "currently playing" data via HTTP and Workers RPC.
 
 ## Features
 
 - Retrieve your currently playing track
-- Edge caching using Cloudflare Workers KV
+- Access token caching via Cloudflare Workers KV
+- RPC entrypoint (`SpotifyService`) for service binding from other workers
+- Standalone HTTP endpoint with CORS support
 
 ## Prerequisites
 
 - Node.js (v20+)
-- npm or Yarn
+- A Cloudflare account
 - A Spotify Developer account with a registered application to obtain:
   - `SPOTIFY_CLIENT_ID`
   - `SPOTIFY_SECRET_ID`
   - `SPOTIFY_REFRESH_TOKEN`
 
-## Installation
-
-1. Clone this repository:
-
-   ```bash
-   git clone https://github.com/Wist9063/spotify-data.git
-   cd spotify-data
-   ```
-
-2. Install dependencies:
-
-   ```bash
-   npm install
-   # or
-   yarn install
-   ```
-
 ## Configuration
 
-Create a `.env` file or set environment variables in your deployment platform:
+Set `SPOTIFY_CLIENT_ID` as a var in `wrangler.jsonc`. Store `SPOTIFY_SECRET_ID` and `SPOTIFY_REFRESH_TOKEN` in Cloudflare Secrets Store and bind them in `wrangler.jsonc` under `secrets_store_secrets`.
 
-```bash
-SPOTIFY_CLIENT_ID=<your-client-id>
-SPOTIFY_SECRET_ID=<your-client-secret>
-SPOTIFY_REFRESH_TOKEN=<your-refresh-token>
-```
-
-If deploying to Cloudflare Workers with Wrangler, add these to your `wrangler.toml` under `vars` and/or `secrets_store_secrets`.
+A KV namespace (`SPOTIFY_TOKEN_KV`) is required for caching access tokens.
 
 ## Usage
 
 ### Local Development
 
 ```bash
-# Start the development server (Next.js or your chosen framework)
 npm run dev
 ```
 
-Visit `http://localhost:3000/api/spotify` to see the JSON payload.
+Sends requests to Spotify's API using your configured credentials. Requires `--remote` for secrets store access:
 
-- `?redirect` — redirect to the Spotify track URL  
+```bash
+npx wrangler dev --remote
+```
+
+Then visit `http://localhost:8787` to see the JSON response.
 
 ### Deployment
 
-You can deploy this service to any Node.js host or edge platform. For Cloudflare Workers:
+```bash
+npm run deploy
+```
 
-1. Install Wrangler:
+### RPC (Service Binding)
 
-   ```bash
-   npm install -g @cloudflare/wrangler
-   ```
+To call this worker from another Cloudflare Worker via RPC, add a service binding in the caller's `wrangler.jsonc`:
 
-2. Configure `wrangler.toml` with your KV namespace and environment bindings.
-3. Publish:
+```jsonc
+"services": [
+  {
+    "binding": "SPOTIFY_WORKER",
+    "service": "xxx-spotify-data", // replace with your worker's name
+    "entrypoint": "SpotifyService"
+  }
+]
+```
 
-   ```bash
-   wrangler publish
-   ```
+Then call it directly:
 
-## API Endpoints
+```js
+const data = await env.SPOTIFY_WORKER.getNowPlaying()
+// { playing: true, name: '...', artist: '...', url: '...', formatted: '...' }
+// or { playing: false }
+// or { playing: false, error: '...' }
+```
 
-- `GET /api/spotify`  
-  Returns JSON with your current Spotify playback status.
+### HTTP Endpoint
+
+- `GET /` — Returns JSON with your current Spotify playback status.
+
+#### Response
+
+```json
+{
+  "playing": true,
+  "name": "Track Name",
+  "artist": "Artist Name",
+  "url": "https://open.spotify.com/track/...",
+  "formatted": "Track Name by Artist Name"
+}
+```
+
+When nothing is playing:
+
+```json
+{
+  "playing": false
+}
+```
+
+## Testing
+
+```bash
+npm test
+```
 
 ## License
 
