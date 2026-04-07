@@ -6,7 +6,11 @@
   "main": "src/index.js",
 
   // When to compile for compatibility
-  "compatibility_date": "2025-05-15",
+  "compatibility_date": "2026-04-01",
+
+  "placement": {
+    "mode": "smart"
+  },
 
   // Use ES module format
   "type": "javascript",
