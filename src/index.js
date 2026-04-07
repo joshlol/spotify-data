@@ -1,9 +1,14 @@
 import { WorkerEntrypoint } from 'cloudflare:workers'
 
-/**
- * Shared logic for fetching a Spotify access token, with KV caching.
- */
+let tokenInflight = null;
+
 async function getAccessToken(env) {
+  if (tokenInflight) return tokenInflight;
+  tokenInflight = _getAccessToken(env);
+  try { return await tokenInflight; } finally { tokenInflight = null; }
+}
+
+async function _getAccessToken(env) {
   const clientID     = env.SPOTIFY_CLIENT_ID;
   const clientSecret = await env.SPOTIFY_SECRET_ID.get();
   const refreshToken = await env.SPOTIFY_REFRESH_TOKEN.get();
@@ -17,7 +22,7 @@ async function getAccessToken(env) {
     return tokenData.token;
   }
 
-  const auth = Buffer.from(`${clientID}:${clientSecret}`).toString('base64');
+  const auth = btoa(`${clientID}:${clientSecret}`);
   const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: {
@@ -40,37 +45,82 @@ async function getAccessToken(env) {
   return access_token;
 }
 
+async function invalidateAccessToken(env) {
+  await env.SPOTIFY_TOKEN_KV.delete('spotify_token');
+  tokenInflight = null;
+}
+
+const NOW_PLAYING_CACHE_TTL = 4000;
+let inflight = null;
+
+async function fetchNowPlaying(env) {
+  if (inflight) return inflight;
+  inflight = _fetchNowPlaying(env);
+  try { return await inflight; } finally { inflight = null; }
+}
+
 /**
  * Fetches the currently playing track from Spotify.
  * Always returns a result object — never throws.
  */
-async function fetchNowPlaying(env) {
+async function _fetchNowPlaying(env) {
   try {
-    const accessToken = await getAccessToken(env);
+    const cached = await env.SPOTIFY_TOKEN_KV.get('now_playing', { type: 'json' });
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.data;
+    }
 
-    const nowRes = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
-      headers: { 'Authorization': `Bearer ${accessToken}` },
-    });
-    if (nowRes.status === 204) {
-      return { playing: false };
+    const result = await _spotifyNowPlaying(env);
+
+    if (result.playing) {
+      await env.SPOTIFY_TOKEN_KV.put(
+        'now_playing',
+        JSON.stringify({ data: result, expiresAt: Date.now() + NOW_PLAYING_CACHE_TTL }),
+        { expirationTtl: 60 }
+      );
     }
-    if (!nowRes.ok) {
-      const err = await nowRes.text();
-      throw new Error(`Now playing fetch failed: ${nowRes.status} ${err}`);
-    }
-    const data = await nowRes.json();
-    const item = data.item;
-    return {
-      playing: true,
-      name:     item.name,
-      url:      item.external_urls.spotify,
-      artist:   item.artists[0].name,
-      formatted: `${item.name} by ${item.artists[0].name}`,
-    };
+
+    return result;
   } catch (e) {
     console.error('Spotify Worker Error:', e);
     return { playing: false, error: e.message };
   }
+}
+
+async function _spotifyNowPlaying(env, retried = false) {
+  const accessToken = await getAccessToken(env);
+
+  const nowRes = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
+    headers: { 'Authorization': `Bearer ${accessToken}` },
+  });
+
+  if (nowRes.status === 401 && !retried) {
+    await invalidateAccessToken(env);
+    return _spotifyNowPlaying(env, true);
+  }
+
+  if (nowRes.status === 204) {
+    return { playing: false };
+  }
+  if (!nowRes.ok) {
+    const err = await nowRes.text();
+    throw new Error(`Now playing fetch failed: ${nowRes.status} ${err}`);
+  }
+
+  const data = await nowRes.json();
+  const item = data.item;
+
+  if (!item) {
+    return { playing: false };
+  }
+
+  return {
+    playing: true,
+    name:     item.name,
+    url:      item.external_urls.spotify,
+    artist:   item.artists[0].name,
+    formatted: `${item.name} by ${item.artists[0].name}`,
+  };
 }
 
 /**
@@ -82,16 +132,17 @@ export class SpotifyService extends WorkerEntrypoint {
   }
 }
 
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+};
+
 /**
  * Default fetch handler for standalone HTTP access.
  */
 export default {
   async fetch(request, env) {
-    const CORS = {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    };
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS });

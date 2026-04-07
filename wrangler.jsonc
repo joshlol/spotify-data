@@ -11,11 +11,7 @@
   // Use ES module format
   "type": "javascript",
 
-	"compatibility_flags": [
-		"nodejs_compat"
-	],
-
-  // Bind your KV namespace for token caching
+// Bind your KV namespace for token caching
   "kv_namespaces": [
     {
       "binding": "SPOTIFY_TOKEN_KV",
