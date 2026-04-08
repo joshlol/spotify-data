@@ -12,9 +12,6 @@
     "mode": "smart"
   },
 
-  // Use ES module format
-  "type": "javascript",
-
 // Bind your KV namespace for token caching
   "kv_namespaces": [
     {
