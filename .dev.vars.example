@@ -1,0 +1,3 @@
+SPOTIFY_CLIENT_ID=your-spotify-client-id
+SPOTIFY_SECRET_ID=your-spotify-client-secret
+SPOTIFY_REFRESH_TOKEN=your-spotify-refresh-token

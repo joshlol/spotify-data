@@ -2,6 +2,8 @@
 
 A Cloudflare Worker that exposes your Spotify "currently playing" data via HTTP and Workers RPC.
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/joshlol/spotify-data)
+
 ## Features
 
 - Retrieve your currently playing track
@@ -20,9 +22,15 @@ A Cloudflare Worker that exposes your Spotify "currently playing" data via HTTP 
 
 ## Configuration
 
-Set `SPOTIFY_CLIENT_ID` as a var in `wrangler.jsonc`. Store `SPOTIFY_SECRET_ID` and `SPOTIFY_REFRESH_TOKEN` in Cloudflare Secrets Store and bind them in `wrangler.jsonc` under `secrets_store_secrets`.
+This project requires a [Spotify Developer application](https://developer.spotify.com/dashboard) with the following credentials:
 
-A KV namespace (`SPOTIFY_TOKEN_KV`) is required for caching access tokens.
+| Variable | Where to set |
+|---|---|
+| `SPOTIFY_CLIENT_ID` | `vars` in `wrangler.jsonc` |
+| `SPOTIFY_SECRET_ID` | Cloudflare Secrets Store (set during deploy) |
+| `SPOTIFY_REFRESH_TOKEN` | Cloudflare Secrets Store (set during deploy) |
+
+A KV namespace (`SPOTIFY_TOKEN_KV`) is automatically provisioned on deploy.
 
 ## Usage
 
@@ -101,4 +109,4 @@ npm test
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0. See the [LICENSE](LICENSE) file for details.
