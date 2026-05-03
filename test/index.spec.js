@@ -88,7 +88,7 @@ describe('Spotify Worker', () => {
 		expect(body.formatted).toBe('Test Song by Test Artist');
 	});
 
-	it('returns playing:false when nothing is playing (204)', async () => {
+	it('returns playing:false when nothing is playing and nothing recent', async () => {
 		const testEnv = mockEnv();
 
 		vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
@@ -101,6 +101,9 @@ describe('Spotify Worker', () => {
 			if (url === 'https://api.spotify.com/v1/me/player/currently-playing') {
 				return new Response(null, { status: 204 });
 			}
+			if (url === 'https://api.spotify.com/v1/me/player/recently-played?limit=1') {
+				return new Response(JSON.stringify({ items: [] }), { status: 200 });
+			}
 			return new Response(null, { status: 500 });
 		});
 
@@ -112,6 +115,125 @@ describe('Spotify Worker', () => {
 		expect(response.status).toBe(200);
 		const body = await response.json();
 		expect(body.playing).toBe(false);
+		expect(body.recent).toBeUndefined();
+	});
+
+	it('returns recent:true when last play was within 30 minutes', async () => {
+		const testEnv = mockEnv();
+		const playedAt = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+			if (url === 'https://accounts.spotify.com/api/token') {
+				return new Response(JSON.stringify({ access_token: 'mock-token', expires_in: 3600 }), {
+					status: 200,
+					headers: { 'Content-Type': 'application/json' },
+				});
+			}
+			if (url === 'https://api.spotify.com/v1/me/player/currently-playing') {
+				return new Response(null, { status: 204 });
+			}
+			if (url === 'https://api.spotify.com/v1/me/player/recently-played?limit=1') {
+				return new Response(JSON.stringify({
+					items: [
+						{
+							played_at: playedAt,
+							track: {
+								name: 'Past Song',
+								external_urls: { spotify: 'https://open.spotify.com/track/abc' },
+								artists: [{ name: 'Past Artist' }],
+							},
+						},
+					],
+				}), { status: 200, headers: { 'Content-Type': 'application/json' } });
+			}
+			return new Response(null, { status: 500 });
+		});
+
+		const request = new Request('http://example.com');
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, testEnv, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.playing).toBe(false);
+		expect(body.recent).toBe(true);
+		expect(body.name).toBe('Past Song');
+		expect(body.artist).toBe('Past Artist');
+		expect(body.formatted).toBe('Past Song by Past Artist');
+		expect(body.playedAt).toBe(playedAt);
+	});
+
+	it('returns playing:false when last play was over 30 minutes ago', async () => {
+		const testEnv = mockEnv();
+		const playedAt = new Date(Date.now() - 45 * 60 * 1000).toISOString();
+
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+			if (url === 'https://accounts.spotify.com/api/token') {
+				return new Response(JSON.stringify({ access_token: 'mock-token', expires_in: 3600 }), {
+					status: 200,
+					headers: { 'Content-Type': 'application/json' },
+				});
+			}
+			if (url === 'https://api.spotify.com/v1/me/player/currently-playing') {
+				return new Response(null, { status: 204 });
+			}
+			if (url === 'https://api.spotify.com/v1/me/player/recently-played?limit=1') {
+				return new Response(JSON.stringify({
+					items: [
+						{
+							played_at: playedAt,
+							track: {
+								name: 'Old Song',
+								external_urls: { spotify: 'https://open.spotify.com/track/xyz' },
+								artists: [{ name: 'Old Artist' }],
+							},
+						},
+					],
+				}), { status: 200, headers: { 'Content-Type': 'application/json' } });
+			}
+			return new Response(null, { status: 500 });
+		});
+
+		const request = new Request('http://example.com');
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, testEnv, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.playing).toBe(false);
+		expect(body.recent).toBeUndefined();
+	});
+
+	it('returns playing:false when recently-played returns 403 (missing scope)', async () => {
+		const testEnv = mockEnv();
+
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+			if (url === 'https://accounts.spotify.com/api/token') {
+				return new Response(JSON.stringify({ access_token: 'mock-token', expires_in: 3600 }), {
+					status: 200,
+					headers: { 'Content-Type': 'application/json' },
+				});
+			}
+			if (url === 'https://api.spotify.com/v1/me/player/currently-playing') {
+				return new Response(null, { status: 204 });
+			}
+			if (url === 'https://api.spotify.com/v1/me/player/recently-played?limit=1') {
+				return new Response('Forbidden', { status: 403 });
+			}
+			return new Response(null, { status: 500 });
+		});
+
+		const request = new Request('http://example.com');
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, testEnv, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.playing).toBe(false);
+		expect(body.error).toBeUndefined();
 	});
 
 	it('returns error when Spotify API fails', async () => {

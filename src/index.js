@@ -63,6 +63,8 @@ async function fetchNowPlaying(env) {
  * Fetches the currently playing track from Spotify.
  * Always returns a result object — never throws.
  */
+const RECENT_WINDOW_MS = 30 * 60 * 1000;
+
 async function _fetchNowPlaying(env) {
   try {
     const cached = await env.SPOTIFY_TOKEN_KV.get('now_playing', { type: 'json' });
@@ -72,7 +74,7 @@ async function _fetchNowPlaying(env) {
 
     const result = await _spotifyNowPlaying(env);
 
-    if (result.playing) {
+    if (result.playing || result.recent) {
       await env.SPOTIFY_TOKEN_KV.put(
         'now_playing',
         JSON.stringify({ data: result, expiresAt: Date.now() + NOW_PLAYING_CACHE_TTL }),
@@ -100,7 +102,7 @@ async function _spotifyNowPlaying(env, retried = false) {
   }
 
   if (nowRes.status === 204) {
-    return { playing: false };
+    return _spotifyRecentlyPlayed(env, accessToken);
   }
   if (!nowRes.ok) {
     const err = await nowRes.text();
@@ -111,7 +113,7 @@ async function _spotifyNowPlaying(env, retried = false) {
   const item = data.item;
 
   if (!item) {
-    return { playing: false };
+    return _spotifyRecentlyPlayed(env, accessToken);
   }
 
   return {
@@ -120,6 +122,46 @@ async function _spotifyNowPlaying(env, retried = false) {
     url:      item.external_urls.spotify,
     artist:   item.artists[0].name,
     formatted: `${item.name} by ${item.artists[0].name}`,
+  };
+}
+
+async function _spotifyRecentlyPlayed(env, accessToken) {
+  const res = await fetch('https://api.spotify.com/v1/me/player/recently-played?limit=1', {
+    headers: { 'Authorization': `Bearer ${accessToken}` },
+  });
+
+  if (res.status === 403) {
+    console.warn('Spotify recently-played: 403 — refresh token likely missing user-read-recently-played scope');
+    return { playing: false };
+  }
+  if (res.status === 204) {
+    return { playing: false };
+  }
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Recently played fetch failed: ${res.status} ${err}`);
+  }
+
+  const data = await res.json();
+  const entry = data.items?.[0];
+  if (!entry?.track || !entry.played_at) {
+    return { playing: false };
+  }
+
+  const playedAt = new Date(entry.played_at).getTime();
+  if (!Number.isFinite(playedAt) || Date.now() - playedAt > RECENT_WINDOW_MS) {
+    return { playing: false };
+  }
+
+  const item = entry.track;
+  return {
+    playing: false,
+    recent: true,
+    name:     item.name,
+    url:      item.external_urls.spotify,
+    artist:   item.artists[0].name,
+    formatted: `${item.name} by ${item.artists[0].name}`,
+    playedAt: entry.played_at,
   };
 }
 

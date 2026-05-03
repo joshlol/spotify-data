@@ -12,6 +12,13 @@
     "mode": "smart"
   },
 
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  },
+
 // Bind your KV namespace for token caching
   "kv_namespaces": [
     {
