@@ -4,8 +4,8 @@
 	"private": true,
 	"scripts": {
 		"deploy": "wrangler deploy",
-		"dev": "wrangler dev",
-		"start": "wrangler dev",
+		"dev": "wrangler dev --remote",
+		"start": "wrangler dev --remote",
 		"test": "vitest run"
 	},
 	"devDependencies": {

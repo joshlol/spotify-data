@@ -121,6 +121,7 @@ async function _spotifyNowPlaying(env, retried = false) {
     name:     item.name,
     url:      item.external_urls.spotify,
     artist:   item.artists[0].name,
+    albumImage: item.album?.images?.[0]?.url ?? null,
     formatted: `${item.name} by ${item.artists[0].name}`,
   };
 }
@@ -160,6 +161,7 @@ async function _spotifyRecentlyPlayed(env, accessToken) {
     name:     item.name,
     url:      item.external_urls.spotify,
     artist:   item.artists[0].name,
+    albumImage: item.album?.images?.[0]?.url ?? null,
     formatted: `${item.name} by ${item.artists[0].name}`,
     playedAt: entry.played_at,
   };
