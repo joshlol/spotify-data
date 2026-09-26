@@ -1,5 +1,36 @@
 import { WorkerEntrypoint } from 'cloudflare:workers'
 
+// Cloudflare-generated upstream errors return only "error code: 52x" as the body
+const CF_ERRORS = {
+  520: 'Spotify returned an unknown error',
+  521: 'Spotify refused the connection',
+  522: 'connection to Spotify timed out',
+  523: 'Spotify is unreachable',
+  524: 'Spotify took too long to respond',
+  525: 'TLS handshake with Spotify failed',
+  526: 'Spotify presented an invalid TLS certificate',
+};
+
+async function spotifyFetch(stage, url, init) {
+  try {
+    return await fetch(url, init);
+  } catch (e) {
+    throw new Error(`Spotify ${stage} request failed: ${e.message}`);
+  }
+}
+
+async function upstreamError(stage, res) {
+  const body = await res.text();
+  let detail;
+  try {
+    const json = JSON.parse(body);
+    detail = json.error_description || json.error?.message || (typeof json.error === 'string' ? json.error : undefined);
+  } catch {}
+  const text = body.trim();
+  detail ??= CF_ERRORS[res.status] ?? (text && !text.startsWith('<') ? text.slice(0, 200) : 'unexpected response');
+  return new Error(`Spotify ${stage} request failed (${res.status}): ${detail}`);
+}
+
 let tokenInflight = null;
 
 async function getAccessToken(env) {
@@ -13,8 +44,13 @@ async function _getAccessToken(env) {
   const clientSecret = await env.SPOTIFY_SECRET_ID.get();
   const refreshToken = await env.SPOTIFY_REFRESH_TOKEN.get();
 
-  if (!clientID || !clientSecret || !refreshToken) {
-    throw new Error('Missing credentials');
+  const missing = Object.entries({
+    SPOTIFY_CLIENT_ID: clientID,
+    SPOTIFY_SECRET_ID: clientSecret,
+    SPOTIFY_REFRESH_TOKEN: refreshToken,
+  }).filter(([, value]) => !value).map(([name]) => name);
+  if (missing.length) {
+    throw new Error(`Missing credentials: ${missing.join(', ')}`);
   }
 
   let tokenData = await env.SPOTIFY_TOKEN_KV.get('spotify_token', { type: 'json' });
@@ -23,7 +59,7 @@ async function _getAccessToken(env) {
   }
 
   const auth = btoa(`${clientID}:${clientSecret}`);
-  const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
+  const tokenRes = await spotifyFetch('token', 'https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -34,7 +70,7 @@ async function _getAccessToken(env) {
       refresh_token: refreshToken,
     }),
   });
-  if (!tokenRes.ok) throw new Error(`Spotify token fetch failed: ${tokenRes.status}`);
+  if (!tokenRes.ok) throw await upstreamError('token', tokenRes);
   const { access_token, expires_in } = await tokenRes.json();
   const ttl = expires_in || 3600;
   await env.SPOTIFY_TOKEN_KV.put(
@@ -84,7 +120,7 @@ async function _fetchNowPlaying(env) {
 
     return result;
   } catch (e) {
-    console.error('Spotify Worker Error:', e);
+    console.error('Spotify Worker Error:', e.message);
     return { playing: false, error: e.message };
   }
 }
@@ -92,7 +128,7 @@ async function _fetchNowPlaying(env) {
 async function _spotifyNowPlaying(env, retried = false) {
   const accessToken = await getAccessToken(env);
 
-  const nowRes = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
+  const nowRes = await spotifyFetch('now-playing', 'https://api.spotify.com/v1/me/player/currently-playing', {
     headers: { 'Authorization': `Bearer ${accessToken}` },
   });
 
@@ -104,10 +140,7 @@ async function _spotifyNowPlaying(env, retried = false) {
   if (nowRes.status === 204) {
     return _spotifyRecentlyPlayed(env, accessToken);
   }
-  if (!nowRes.ok) {
-    const err = await nowRes.text();
-    throw new Error(`Now playing fetch failed: ${nowRes.status} ${err}`);
-  }
+  if (!nowRes.ok) throw await upstreamError('now-playing', nowRes);
 
   const data = await nowRes.json();
   const item = data.item;
@@ -127,7 +160,7 @@ async function _spotifyNowPlaying(env, retried = false) {
 }
 
 async function _spotifyRecentlyPlayed(env, accessToken) {
-  const res = await fetch('https://api.spotify.com/v1/me/player/recently-played?limit=1', {
+  const res = await spotifyFetch('recently-played', 'https://api.spotify.com/v1/me/player/recently-played?limit=1', {
     headers: { 'Authorization': `Bearer ${accessToken}` },
   });
 
@@ -138,10 +171,7 @@ async function _spotifyRecentlyPlayed(env, accessToken) {
   if (res.status === 204) {
     return { playing: false };
   }
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Recently played fetch failed: ${res.status} ${err}`);
-  }
+  if (!res.ok) throw await upstreamError('recently-played', res);
 
   const data = await res.json();
   const entry = data.items?.[0];

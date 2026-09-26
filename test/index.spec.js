@@ -262,4 +262,67 @@ describe('Spotify Worker', () => {
 		expect(body.playing).toBe(false);
 		expect(body.error).toBeDefined();
 	});
+
+	describe('error messages', () => {
+		const tokenOk = () => new Response(JSON.stringify({ access_token: 'mock-token', expires_in: 3600 }), {
+			status: 200,
+			headers: { 'Content-Type': 'application/json' },
+		});
+
+		async function getError(testEnv, fetchMock) {
+			vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock);
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(new Request('http://example.com'), testEnv, ctx);
+			await waitOnExecutionContext(ctx);
+			expect(response.status).toBe(500);
+			return (await response.json()).error;
+		}
+
+		it('explains Cloudflare 52x errors from Spotify', async () => {
+			const error = await getError(mockEnv(), async (url) => {
+				if (url === 'https://accounts.spotify.com/api/token') return tokenOk();
+				return new Response('error code: 525\n', { status: 525 });
+			});
+			expect(error).toBe('Spotify now-playing request failed (525): TLS handshake with Spotify failed');
+		});
+
+		it('uses the message from Spotify JSON errors', async () => {
+			const error = await getError(mockEnv(), async (url) => {
+				if (url === 'https://accounts.spotify.com/api/token') return tokenOk();
+				return new Response(JSON.stringify({ error: { status: 503, message: 'Service unavailable' } }), { status: 503 });
+			});
+			expect(error).toBe('Spotify now-playing request failed (503): Service unavailable');
+		});
+
+		it('uses the error description from token failures', async () => {
+			const error = await getError(mockEnv(), async () =>
+				new Response(JSON.stringify({ error: 'invalid_grant', error_description: 'Invalid refresh token' }), { status: 400 })
+			);
+			expect(error).toBe('Spotify token request failed (400): Invalid refresh token');
+		});
+
+		it('does not include HTML bodies', async () => {
+			const error = await getError(mockEnv(), async (url) => {
+				if (url === 'https://accounts.spotify.com/api/token') return tokenOk();
+				return new Response('<!DOCTYPE html><html></html>', { status: 502 });
+			});
+			expect(error).toBe('Spotify now-playing request failed (502): unexpected response');
+		});
+
+		it('reports network failures with the request stage', async () => {
+			const error = await getError(mockEnv(), async (url) => {
+				if (url === 'https://accounts.spotify.com/api/token') return tokenOk();
+				throw new Error('Network connection lost.');
+			});
+			expect(error).toBe('Spotify now-playing request failed: Network connection lost.');
+		});
+
+		it('names missing credentials', async () => {
+			const error = await getError(
+				mockEnv({ SPOTIFY_REFRESH_TOKEN: { get: async () => null } }),
+				async () => new Response(null, { status: 500 })
+			);
+			expect(error).toBe('Missing credentials: SPOTIFY_REFRESH_TOKEN');
+		});
+	});
 });
